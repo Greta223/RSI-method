@@ -1,0 +1,29 @@
+//@version=6
+strategy("Classic RSI (70/30)", overlay=true, 
+ commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=1,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=50,
+     initial_capital=1000,
+     currency=currency.USDT)
+
+rsiLength     = input.int(14,  "RSI period")
+rsiOverbought = input.float(70, "Overbought zone (RSI > 70)")
+rsiOversold   = input.float(30, "Oversold zone (RSI < 30)")
+
+rsi = ta.rsi(close, rsiLength)
+
+if (rsi < rsiOversold)
+    strategy.entry("Long", strategy.long)
+
+if (rsi > rsiOverbought)
+    strategy.entry("Short", strategy.short)
+
+if (strategy.position_size > 0 and rsi > rsiOverbought)
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and rsi < rsiOversold)
+    strategy.close("Short")
+
+
