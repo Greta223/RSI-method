@@ -1,0 +1,39 @@
+//@version=6
+strategy("Stochastic RSI (K & D, 70/30)", overlay=true,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,          
+     slippage=1,                    
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=50,         
+     initial_capital=1000,          
+     currency=currency.USDT,
+     pyramiding=0)
+
+rsiLength       = input.int(14,  "RSI period")
+stochLength     = input.int(14,  "Stoch RSI period")
+kSmooth         = input.int(3,   "K line")
+dSmooth         = input.int(3,   "D line")
+stochOverbought = input.float(90, "Overbought zone (K & D > 70)", minval=0, maxval=100)
+stochOversold   = input.float(10, "Oversold zone (K & D < 30)", minval=0, maxval=100)
+
+
+rsi = ta.rsi(close, rsiLength)
+k_raw = ta.stoch(rsi, rsi, rsi, stochLength)
+k = ta.sma(k_raw, kSmooth)
+d = ta.sma(k, dSmooth)
+
+longEntry  = (k < stochOversold) and (d < stochOversold)
+shortEntry = (k > stochOverbought) and (d > stochOverbought)
+
+if (longEntry)
+    strategy.entry("Long", strategy.long)
+
+if (shortEntry)
+    strategy.entry("Short", strategy.short)
+
+if (strategy.position_size > 0 and k > stochOverbought and d > stochOverbought)
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and k < stochOversold and d < stochOversold)
+    strategy.close("Short")
+
