@@ -1,0 +1,118 @@
+//@version=6
+strategy('Stoch RSI and RSI Buy/Sell Signals with VWAP Filter', overlay=true,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,  // 0.1% komisinis
+     slippage=1,  // 2 ticks slippage
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=50,  // Naudoja 100% kapitalo pozicijai
+     initial_capital=1000,  // Pradinis kapitalas 1000 USDT
+     currency=currency.USDT)
+
+// Stochastic RSI Settings
+stochLength = input.int(14, title='Stochastic RSI Length', minval=1, group='Stochastic RSI Settings', tooltip='This setting determines the period over which the RSI is calculated for the Stochastic RSI. A higher value will make the indicator less sensitive to price changes, smoothing out the fluctuations, but may lag more. A lower value makes it more sensitive and responsive to recent price changes.')
+stochSmoothing = input.int(3, title='Stochastic Smoothing (Slow K)', minval=1, group='Stochastic RSI Settings', tooltip='This is the smoothing period for the Stochastic RSI\'s slow K line. It smooths the %K line to reduce noise and false signals. A higher value means more smoothing, resulting in fewer but potentially more reliable signals.')
+stochOverbought = input.float(90, title='Stoch RSI Overbought Level', minval=0, maxval=100, group='Stochastic RSI Settings', tooltip='This is the threshold above which the Stochastic RSI is considered overbought. When the Stochastic RSI exceeds this level, it may indicate that the asset is overpriced and could be a sell signal. Adjusting this value can help tune the indicator to different market conditions.')
+stochOversold = input.float(10, title='Stoch RSI Oversold Level', minval=0, maxval=100, group='Stochastic RSI Settings', tooltip='Similar to the overbought level, this is the threshold below which the Stochastic RSI is considered oversold. It may indicate that the asset is undervalued and could be a buy signal.')
+
+// RSI Settings
+rsiLength = input.int(14, title='RSI Length', minval=1, group='RSI Settings', tooltip='The period over which the RSI is calculated. The default is 14, but adjusting this can make the RSI more or less sensitive to price changes. A shorter period makes it more sensitive, while a longer period smooths out the fluctuations.')
+rsiOverbought = input.float(70, title='RSI Overbought Level', minval=0, maxval=100, group='RSI Settings', tooltip='Level above which the RSI is considered overbought. Typically set above 70, but here it\'s set to 65. When RSI exceeds this level, it may suggest that the asset is overpriced.')
+rsiNeutral = input.float(50, title='RSI Neutral Level', minval=0, maxval=100, group='RSI Settings', tooltip='The neutral level, usually set at 50, which is the midpoint of the RSI oscillator. It\'s where the RSI is neither indicating overbought nor oversold conditions.')
+rsiOversold = input.float(30, title='RSI Oversold Level', minval=0, maxval=100, group='RSI Settings', tooltip='Level below which the RSI is considered oversold. Typically below 30, but set to 35 here. It may indicate that the asset is undervalued.')
+
+// Signal Colors
+buyColorGreen = input.color(color.green, title='Buy Signal - RSI <= Oversold', group='Signal Colors', tooltip='The color for buy signals when the RSI is below or equal to the oversold level, indicating a stronger buy signal.')
+buyColorBlue = input.color(color.blue, title='Buy Signal - RSI > Oversold', group='Signal Colors', tooltip='The color for buy signals when the RSI is above the oversold level but still indicating a buy condition.')
+sellColorRed = input.color(color.red, title='Sell Signal - RSI >= Overbought', group='Signal Colors', tooltip='The color for sell signals when the RSI is above or equal to the overbought level, indicating a stronger sell signal.')
+sellColorOrange = input.color(color.orange, title='Sell Signal - RSI < Overbought', group='Signal Colors', tooltip='The color for sell signals when the RSI is below the overbought level but still indicating a sell condition.')
+
+// Conditions
+enableCandleColorCondition = input.bool(true, title='Enable Candle Color Condition', group='Conditions', tooltip='Enabling this will require the candle color to confirm the signal direction. For buys, the candle should close higher than it opened, and for sells, the opposite.')
+
+// Signal Table
+showTable = input.bool(true, title='Show Signal Table', group='Signal Table', tooltip='Enabling this will show a table at the bottom right of the chart displaying buy and sell signals across different time frames.')
+
+// Calculations
+
+// Calculating RSI
+rsi = ta.rsi(close, rsiLength)
+
+// Calculating Stochastic RSI
+stochRsiK = ta.stoch(rsi, rsi, rsi, stochLength)
+stochRsiD = ta.sma(stochRsiK, stochSmoothing)
+
+// Buy and Sell Conditions
+buyConditionMet = stochRsiK < stochOversold and stochRsiD < stochOversold
+sellConditionMet = stochRsiK > stochOverbought and stochRsiD > stochOverbought
+
+//VWAP Deviation
+enableVWAPFilter = input.bool(true, title='Enable VWAP Filter', group='Conditions')
+vwapDeviation = input.float(0.5, title='VWAP Deviation %', minval=0.5, maxval=5, group='VWAP Settings')
+
+// VWAP Calculations
+vwapValue = ta.vwap(hlc3)
+
+// Distance from VWAP
+distanceFromVWAP = ((close - vwapValue) / vwapValue) * 100
+
+// Conditions
+belowVWAP = distanceFromVWAP < -vwapDeviation  // Žemiau VWAP
+aboveVWAP = distanceFromVWAP > vwapDeviation   // Virš VWAP
+
+// Set filter
+if enableVWAPFilter
+    buyConditionMet := buyConditionMet and belowVWAP  // Pirkti kai žemiau VWAP
+    sellConditionMet := sellConditionMet and aboveVWAP  // Parduoti kai virš VWAP
+
+// Flags to track conditions met in the previous candle
+var bool buyFlag = false
+var bool sellFlag = false
+var float previousRsiValue = na
+
+// Update flags and store RSI if conditions are met
+if buyConditionMet and (enableCandleColorCondition ? close < open : true)
+    buyFlag := true
+    previousRsiValue := rsi
+
+if sellConditionMet and (enableCandleColorCondition ? close > open : true)
+    sellFlag := true
+    previousRsiValue := rsi
+
+// Determine colors for buy/sell signals based on RSI level
+buyColor = previousRsiValue <= rsiOversold ? buyColorGreen : buyColorBlue
+sellColor = previousRsiValue >= rsiOverbought ? sellColorRed : sellColorOrange
+
+// Signals with flag and candle color checks
+buySignal = buyFlag and (enableCandleColorCondition ? close > open : true)
+sellSignal = sellFlag and (enableCandleColorCondition ? close < open : true)
+
+// Reset flags after signals are triggered
+if buySignal
+    buyFlag := false
+
+if sellSignal
+    sellFlag := false
+
+
+strongBuySignal = buySignal and previousRsiValue <= rsiOversold
+strongSellSignal = sellSignal and previousRsiValue >= rsiOverbought
+
+
+if strongBuySignal
+    strategy.entry("Long", strategy.long)
+
+if strongSellSignal
+    strategy.entry("Short", strategy.short)
+
+if (strategy.position_size > 0 and strongSellSignal)
+    strategy.close("Long")
+
+if (strategy.position_size < 0 and strongBuySignal)
+    strategy.close("Short")
+
+// Plotting buy/sell signals based on user input with previous RSI value in the text
+if buySignal
+    label.new(bar_index, low, 'BUY (' + str.tostring(math.floor(previousRsiValue)) + ')', color=buyColor, style=label.style_label_up, textcolor=color.white, size=size.small)
+
+if sellSignal
+    label.new(bar_index, high, 'SELL (' + str.tostring(math.floor(previousRsiValue)) + ')', color=sellColor, style=label.style_label_down, textcolor=color.white, size=size.small)
